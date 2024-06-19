@@ -14,6 +14,7 @@ class BaseDatabaseConnection:
             cursor.execute(sql, params or ())
             if operation_type in ['insert', 'delete', 'update']:
                 self.conn.commit()
+                
                 return cursor.lastrowid
             elif operation_type == 'query':
                 return cursor.fetchall()

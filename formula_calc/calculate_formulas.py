@@ -1,13 +1,19 @@
+from datetime import datetime
 import re
 from typing import List
-import numexpr as ne
 import pandas as pd
 from data_retrival.retrive_data import DataCacheV2
 from tvDatafeed import TvDatafeed, Interval
 import os
 import json
+from db.BasicDbOperations import BasicDbOperations
+from environment_config import EnvironmentConfig
 from formula_manage.utils import decrypt_data
 from data_retrival.redis_connection import RedisConnection
+from order_manager.orders import buy_stock, check_orders
+from .complex_func import check_MA_condition, calculate_rsi, calculate_historic_volatility
+# from db.queries.formula_queries import FormulaQueries
+
 def apply_formulas_to_dataframe(df:pd.DataFrame,user_formula:pd.Series):
         #print("Applying formulas to DataFrame")
         applied_formulas = set()
@@ -15,22 +21,22 @@ def apply_formulas_to_dataframe(df:pd.DataFrame,user_formula:pd.Series):
         column_name = user_formula[2]
         formula = user_formula[3]
 
-        if column_name in df.columns:
-                #print(f"Skipping already existing column: {column_name}")
-            pass
-        print("Formula ", formula, "Name : ", column_name)
-        processed_formula = preprocess_time_shifts(df, formula)
-        print("Processed_formula : ", processed_formula)
-        valid_words = ['open', 'close', 'volume', 'high', 'low']
-        if needs_calculation(processed_formula):
-                df[column_name] = ne.evaluate(processed_formula, local_dict=df)
-        else:
-            if processed_formula.lower() in valid_words:
-                df[column_name] = ne.evaluate(processed_formula, local_dict=df)
-            else:
-                df.rename(columns={processed_formula: column_name}, inplace=True)
+        # if column_name in df.columns:
+        #         #print(f"Skipping already existing column: {column_name}")
+        #     pass
+        # print("Formula ", formula, "Name : ", column_name)
+        # processed_formula = preprocess_time_shifts(df, formula)
+        # print("Processed_formula : ", processed_formula)
+        # valid_words = ['open', 'close', 'volume', 'high', 'low']
+        # if needs_calculation(processed_formula):
+        #         df[column_name] = ne.evaluate(processed_formula, local_dict=df)
+        # else:
+        #     if processed_formula.lower() in valid_words:
+        #         df[column_name] = ne.evaluate(processed_formula, local_dict=df)
+        #     else:
+        #         df.rename(columns={processed_formula: column_name}, inplace=True)
 
-            applied_formulas.add(column_name)
+        #     applied_formulas.add(column_name)
             #print(f"Applied formula: {column_name}")
         return df.iloc[-1]
         #print("Completed applying formulas")
@@ -79,53 +85,6 @@ def preprocess_time_shifts(df, formula):
         formula = re.sub(r'[^\x20-\x7E]+', '', formula)
         return formula
 
-
-#calculates the formula and determines wether to buy or sell
-def determine_formula_output(formula_df_list:List[pd.DataFrame],user_data: dict):
-     #iterate through the dataframe and determine
-     #for each formula wether to buy or sell depending on threshold
-     redis_conn = RedisConnection()
-     redis_conn.connect()
-     for df in formula_df_list:
-        trade_or_not = True
-        print("Executing formula for", df[1])
-        for index, row in df.iterrows():
-
-            
-            # Obtain TV credentials from environment variables
-            tv_username = os.environ.get("TRADING_VIEW_USER")
-            tv_pass = os.environ.get("TRADING_VIEW_PASSWORD")
-            
-            # Initialize a DataCache object to obtain stock data
-            data_cache = DataCacheV2(tv_data_feed=TvDatafeed(
-                username=tv_username,
-                password=tv_pass),
-                redis_client=redis_conn)
-            
-            # Parse data and obtain stock data
-            intervals = get_interval_enum(row[8]["period"])
-            stock_df = data_cache.get_data(
-                symbol=row[8]["selected_symbol"],
-                exchange=row[8]["selected_exchange"],
-                interval=intervals,
-                n_bars=row[8]["num_periods"])
-            
-            # Apply formulas to the dataframe
-            calculated_formula = apply_formulas_to_dataframe(df=stock_df, user_formula=row)
-            
-            # Determine buy or sell decision
-            decision = determine_buy_or_sell(formula_data=row, calculated_data=calculated_formula, user_data=user_data)
-            #assign the value of true or false to a variable
-            #if determine buy or sell returns false at any point leave it at false
-            #check at teh end of the loop
-            if(decision == False):
-                 trade_or_not = False
-                
-        if(trade_or_not == True):
-             print(" FINAL RESULT : Executed Trade")
-        else:
-             print(" FINAL RESULT : Trade not executed")
-     return True
 
 #add logic to grab user credentials, add method in utils to decrypt tvpassword
 def determine_buy_or_sell(formula_data:pd.Series, calculated_data: pd.Series, user_data: dict):
@@ -215,3 +174,94 @@ def get_interval_enum(interval_str):
 
         return interval_map[interval_str]
      
+
+def determine_formula_output():
+    redis_conn = RedisConnection()
+    redis_conn.connect()
+
+
+#             # Obtain TV credentials from environment variables
+    tv_username = os.environ.get("TRADING_VIEW_USER")
+    tv_pass = os.environ.get("TRADING_VIEW_PASSWORD")
+            
+            # Initialize a DataCache object to obtain stock data
+    attempts = 2  # Number of attempts to try
+
+    for attempt in range(attempts):
+        try:
+            # Initialize the data cache with TvDatafeed and redis client
+            data_cache = DataCacheV2(
+                tv_data_feed=TvDatafeed(
+                    username=tv_username,
+                    password=tv_pass
+                ),
+                redis_client=redis_conn
+            )
+
+            # Get the interval enum for "5m"
+            intervals = get_interval_enum("5m")
+
+            # Fetch the stock data for TSLA from NASDAQ
+            stock_df = data_cache.get_data(
+                symbol="TSLA",
+                exchange="NASDAQ",
+                interval=intervals,
+                n_bars=200
+            )
+
+
+        except Exception as e:
+            print(f"Attempt {attempt + 1} failed: {e}")
+
+            if attempt + 1 == attempts:
+                print("All attempts failed. Something went wrong.")
+                return None
+
+    criteria_1,selling_price,stop_loss_price = check_MA_condition(stock_df)
+    criteria_2 = calculate_rsi(stock_df)
+
+    calculate_historic_volatility(df=stock_df)
+    print("condition 1: ", criteria_1, "condition 2: ", criteria_2)
+    print("Sell amount :", selling_price)
+    print("stop loss: ", stop_loss_price)
+    
+    env_config = EnvironmentConfig()
+    alpaca_key = env_config.alpaca_key
+    alpaca_secret = env_config.alpaca_secret
+    check_order_criteria = check_orders(Api_key=alpaca_key,Api_secret=alpaca_secret)
+
+
+    if(criteria_1 == True and criteria_2 == True and check_order_criteria == True):
+             
+
+             #add verification to see if the last order has been sold, if it has then create new order
+             print(" FINAL RESULT : Executed Trade")
+             symbol = 'TSLA'
+             qty = 1
+             buy_stock(symbol=symbol,qty=qty,stop_price_value=stop_loss_price,sell_price=selling_price,Api_key=alpaca_key,Api_secret=alpaca_secret)
+            #  sell_stock(symbol=symbol,qty=qty,limit_price=selling_price)
+            #  stop_loss(symbol=symbol,qty=qty,stop_price=stop_loss_price)
+
+             basic_db_operations = BasicDbOperations(env_config)
+             db_conn = basic_db_operations.db_connection
+             buy_price = 100.00
+             query_result = basic_db_operations.add_logs_query(db_connection=db_conn,time=datetime.now(),buy_price=buy_price,sell_price=selling_price,stop_loss=stop_loss_price,
+                                                    stock=symbol)
+             print(query_result)
+
+
+
+    else:
+             print(" FINAL RESULT : Trade not executed")
+    return True
+
+
+def run_strategies(strategy_list: List):
+
+    for strategy in strategy_list:
+        strategy()
+
+
+
+
+    return True

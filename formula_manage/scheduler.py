@@ -1,6 +1,7 @@
 from apscheduler.schedulers.background import BackgroundScheduler
-from formula_calc.calculate_formulas import determine_formula_output
+from formula_calc.calculate_formulas import run_strategies
 from apscheduler.triggers.interval import IntervalTrigger
+from datetime import datetime, timedelta
 
 class Scheduler:
     def __init__(self, scheduler:BackgroundScheduler):
@@ -10,7 +11,7 @@ class Scheduler:
 
 
 
-    def schedule_formulas(self,time:int,period:str,df,uuid:str,user_data:dict):
+    def schedule_formulas(self,time:int,period:str,df,uuid:str):
         if(period == "min"):
             interval = IntervalTrigger(minutes=time)
         elif(period == "hour"):
@@ -18,13 +19,17 @@ class Scheduler:
         elif(period == "day"):
             interval = IntervalTrigger(days=time)
 
+        start_time = datetime.now() + timedelta(seconds=5)
 
+        print("scheduled job")
         self.scheduler.add_job(
-           func=determine_formula_output,
+           func=run_strategies,
            trigger=interval,
-           kwargs={'formula_df_list':df, 'user_data': user_data},
-           id=uuid
+           kwargs={'strategy_list':df},
+           id=uuid,
+           run_date=start_time
         )
+        print(self.scheduler.get_jobs())
 
     # def start_scheduler(self):
     #     self.scheduler.start()

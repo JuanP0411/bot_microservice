@@ -100,4 +100,19 @@ class BasicDbOperations:
         query = f"SELECT username, tv_user, tv_password FROM users"
         result = db_connection.execute(query, operation_type='query', debug=1,log=1)
         return result
+    
+    @staticmethod 
+    def add_logs_query(db_connection:PostgresDatabaseConnection,time,buy_price,sell_price,stop_loss,stock):
+        """
+        Executes a query to add a log to the database
+        Returns:
+            The result of the query execution.
+        """
+        query = '''INSERT INTO buy_logs (time, buy_price, sell_price, stop_loss, stock)
+                   VALUES (%s, %s, %s, %s, %s)
+                '''
+        result = db_connection.execute(query,(time,buy_price,sell_price,stop_loss,stock),operation_type='insert')
+        return result      
+
+
 

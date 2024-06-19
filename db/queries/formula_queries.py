@@ -1,10 +1,10 @@
 import streamlit as st
 import json
 import datetime
-from db.database_connection import SQLiteDatabaseConnection
+from db.database_connection import PostgresDatabaseConnection
 
 class FormulaQueries:
-    def __init__(self, db_connection:SQLiteDatabaseConnection):
+    def __init__(self, db_connection:PostgresDatabaseConnection):
         # Initialize session state for formulas if not already present
         self.db_connection = db_connection
 
@@ -98,3 +98,17 @@ class FormulaQueries:
                                                     formula['threshold'], formula['invert'], 
                                                     formula['graph_type'], formula['graph_details']), 
                                     operation_type='insert')
+            
+
+    def add_logs_query(self,time,buy_price,sell_price,stop_loss,stock):
+        """
+        Executes a query to add a log to the database
+        Returns:
+            The result of the query execution.
+        """
+        query = '''INSERT INTO buy_logs (time, buy_price, sell_price, stop_loss, stock)
+                   VALUES (%s, %s, %s, %s, %s)
+                '''
+        result = self.db_connection.execute(query,(time,buy_price,sell_price,stop_loss,stock))
+        
+        return result      

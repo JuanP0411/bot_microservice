@@ -23,6 +23,10 @@ class EnvironmentConfig:
         self.database_log_filename=os.path.join(base_dir, os.environ.get("DB_LOG_NAME", "../databases/db_operations.log"))
         self.database_log_level_name = os.getenv('DB_LOG_LEVEL', 'INFO').upper()  
 
+        self.alpaca_secret= os.environ.get("ALPACA_SECRET")
+        self.alpaca_key = os.environ.get("ALPACA_KEY")
+
+
         # Connection configurations
         self.use_secure_connection = bool(int(os.environ.get('USE_SECURE_CONNECTION', 0)))
     def get_db_connection(self):

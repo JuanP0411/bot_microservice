@@ -6,7 +6,7 @@ import pandas as pd
 class DataCacheV2:
     def __init__(self, tv_data_feed:TvDatafeed, redis_client:RedisConnection):
         self.cache = {}
-        self.useCache = True
+        self.useCache = False
         self.tv = tv_data_feed
         self.redis_client = redis_client
 
