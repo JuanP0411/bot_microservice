@@ -49,3 +49,5 @@ coverage.xml
 Thumbs.db
 
 *.key
+
+.csv

@@ -68,11 +68,12 @@ def stop_loss(symbol, qty, stop_price,Api_key='',Api_secret=''):
     return True
 
 
-def check_orders(Api_key='',Api_secret=''):
+def check_orders(Api_key='',Api_secret='',symbol = ""):
+    print("checking orders ")
     api = tradeapi.REST(Api_key, Api_secret, BASE_URL, api_version='v2')
     open_orders = api.list_orders(status='open')
 
-    bracket_orders = [order for order in open_orders if order.order_class == 'bracket']
+    bracket_orders = [order for order in open_orders if order.order_class == 'bracket' and order.symbol == symbol]
 
     if bracket_orders:
         print("Bracket orders still exist will not be placing a new order")
@@ -80,3 +81,40 @@ def check_orders(Api_key='',Api_secret=''):
     else:
         print("Bracket order does not exist")
         return True
+    
+
+def check_portfolio_value_vs_equity_threshold(Api_key='',Api_secret='',threshold_percentage=0.6):
+    # Get account information
+    print("checking orders ")
+    api = tradeapi.REST(Api_key, Api_secret, BASE_URL, api_version='v2')
+    account = api.get_account()
+    equity = float(account.equity)
+    
+    # Get all open positions
+    positions = api.list_positions()
+    
+    # Calculate the total purchase value of all positions
+        
+    total_purchase_value = sum(float(position.avg_entry_price) * float(position.qty) for position in positions)
+    
+    # Calculate the threshold value
+    print("Equity :", equity)
+    print("Threshold percent:", threshold_percentage)
+    threshold_value = threshold_percentage * equity
+    print("Value of all open positions :" , total_purchase_value)
+    print("Threshold value : ", threshold_value)
+    # Compare total purchase value with 60% of the portfolio equity
+    if total_purchase_value < threshold_value : 
+        print("Value of all open positions is below 60 percent, can place order ")
+        return True
+    else : 
+        print("Value of all open positions is above 60 percent, cannot place order ")
+        return False
+
+def getMoneyInPortfolio(value_percent: float,Api_key='',Api_secret=''):
+    api = tradeapi.REST(Api_key, Api_secret, BASE_URL, api_version='v2')
+    account = api.get_account()
+    cash_available = float(account.equity)
+    trade_value = cash_available*value_percent/100
+    print("Trade value:", trade_value)
+    return trade_value

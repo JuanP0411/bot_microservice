@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-
+from datetime import datetime
 
 def check_MA_condition(df, window=100):
     # Calculate the 100-period moving average of the 'close' prices
@@ -15,15 +15,36 @@ def check_MA_condition(df, window=100):
     expression_result = df['MA_100']  - 2 * ma_100_stdev
     selling_price = df['MA_100']  +  3 * ma_100_stdev
     stop_loss_price = df['MA_100']  - 3 * ma_100_stdev
+    prev_close = df['close'].iloc[-2]
     
     # Compare if ma(close,100) is lower than -2 * (stdev(ma(close,100)))
     print("close: ", df['close'].iloc[-1])
     print("Standard_dev", round(ma_100_stdev,3))
     print("lower band:", round(expression_result.iloc[-1],3))
-    condition_met = round(df['MA_100'].iloc[-1],3)  < round(expression_result.iloc[-1],3)
-    print("Condition met? : ",condition_met)
+    condition_met = round( df['close'].iloc[-1])  < round(expression_result.iloc[-1],3)
+    second_condition_met = round(prev_close )  < round(expression_result.iloc[-1],3)
+    print("First condition met? : ",condition_met)
+    print("Second condition met? : ",second_condition_met)
+    if(condition_met or second_condition_met):
+        final_condtion = True
+    else:
+        final_condtion = False
+    print("final condition met? : ",final_condtion)
 
-    return condition_met, round(selling_price.iloc[-1],3), round(stop_loss_price.iloc[-1],3)
+
+    data = {
+        "time" : [datetime.now()],
+        "close" : [df['close'].iloc[-1]],
+        "standard_dev" : [round(ma_100_stdev,3)],
+        "lower_band": [round(expression_result.iloc[-1],3)],
+        "close < lowerband": [condition_met],
+        "prev_close < lowerband": [second_condition_met],
+        "first condition met?" : [final_condtion]
+    }
+
+
+
+    return condition_met, round(selling_price.iloc[-1],3), round(stop_loss_price.iloc[-1],3), data
 
 
 # def calculate_rsi(df, window=14):
@@ -81,14 +102,30 @@ def calculate_rsi(close_prices, period=14):
     
     # Initial RSI values will be NaN until enough data points are available
     rsi[:period] = np.nan
+
+
+
     print("rsi :" , round(rsi[-1],3))
     print("rsi previous :", round(rsi[-2],3))
     if round(rsi[-1],3) >= 30 and round(rsi[-2],3) < 30 :
-        return True
+        data = {
+        "rsi" : round(rsi[-1],3),
+        "rsi prev": round(rsi[-2],3),
+        "rsi_condition_met?" : True
+        }
+        return True,data
     else :
-        return False
+        data = {
+        "rsi" : round(rsi[-1],3),
+        "rsi prev": round(rsi[-2],3),
+        "rsi_condition_met?": False
+        }
+        return False,data
+    
 
-def calculate_historic_volatility(df, window=10):
+
+
+def calculate_historic_volatility(df, window=30):
     # Calculate the logarithmic returns of the 'close' prices
     df['log_returns'] = np.log(df['close'].astype(float) / df['close'].shift(1).astype(float))
     
@@ -97,8 +134,15 @@ def calculate_historic_volatility(df, window=10):
 
     recent_volatility = df['volatility'].iloc[-1]
     
+    current_close_price = df["close"].iloc[-1]
+    stop_loss_num_stdev = 0.5
+    sell_num_stdev = 1.5
+    stop_loss_price = current_close_price *(1 - (stop_loss_num_stdev * recent_volatility))
+    sell_price = current_close_price *(1 + (sell_num_stdev * recent_volatility))
     # Print the recent volatility
     print("Recent historic volatility:", recent_volatility)
+    print("Stop loss price : " , stop_loss_price)
+    print("Sell Price", sell_price)
 
-    return recent_volatility
+    return recent_volatility,stop_loss_price,sell_price
 
