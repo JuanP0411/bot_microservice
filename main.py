@@ -1,15 +1,10 @@
-
 from apscheduler.schedulers.background import BackgroundScheduler
-
-import pandas as pd
 from db.BasicDbOperations import BasicDbOperations
 from environment_config import EnvironmentConfig
 from formula_manage.formula_manager import Formula_manager
 from formula_manage.scheduler import Scheduler
-
 from fastapi import FastAPI
 import uvicorn
-from formula_manage.utils import create_user_dictionary
 from formula_calc.calculate_formulas import determine_formula_output
 
 app = FastAPI()
