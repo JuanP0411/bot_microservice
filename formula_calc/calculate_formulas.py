@@ -1,5 +1,6 @@
 from datetime import datetime
 import re
+import time
 from typing import List
 import pandas as pd
 from data_retrival.retrive_data import DataCacheV2
@@ -9,8 +10,8 @@ from db.BasicDbOperations import BasicDbOperations
 from environment_config import EnvironmentConfig
 from formula_manage.utils import decrypt_data
 from data_retrival.redis_connection import RedisConnection
-from order_manager.orders import buy_stock, check_orders, getMoneyInPortfolio, check_portfolio_value_vs_equity_threshold
-from .complex_func import check_MA_condition, calculate_rsi, calculate_historic_volatility
+from order_manager.orders import buy_stock, check_orders, getMoneyInPortfolio, check_portfolio_value_vs_equity_threshold, stop_loss_trailing_price,buy_stock_single, check_orders_trailing_stop
+from .complex_func import check_MA_condition, calculate_rsi, calculate_historic_volatility,calculate_atr
 import pandas as pd
 # from db.queries.formula_queries import FormulaQueries
 
@@ -191,22 +192,22 @@ def get_interval_enum(interval_str):
         return interval_map[interval_str]
 
 def determine_formula_output():
-    stock_list = ["AMZN","TSLA","GOOG","NFLX","NVDA","BIDU","INTC","FUTU","ABNB","MSFT","NVAX","SQQQ"]
+    stock = os.environ.get("STOCK")
+    stock_list = [stock]
     redis_conn = RedisConnection()
     redis_conn.connect()
 
     tv_username = os.environ.get("TRADING_VIEW_USER")
     tv_pass = os.environ.get("TRADING_VIEW_PASSWORD")
-            
-    attempts = 2
+    print("Running for :", stock)
     exchange = "NASDAQ"
-    intervals = Interval.in_1_hour  # Assuming this is the correct interval
+    intervals = Interval.in_5_minute  
     n_bars = 200
 
     for stocks in stock_list:
         print("Running for :", stocks)
-        for attempt in range(attempts):
-            try:
+        
+        try:
                 data_cache = DataCacheV2(
                     tv_data_feed=TvDatafeed(
                         username=tv_username,
@@ -222,9 +223,11 @@ def determine_formula_output():
                     n_bars=n_bars
                 )
 
+                print(stock_df)
+
                 if stock_df is None or stock_df.empty:
                     print(f"No data retrieved for {stocks}. Skipping to next stock.")
-                    break
+                    continue
 
                 criteria_1, selling_price, stop_loss_price, ma_data = check_MA_condition(stock_df)
                 criteria_2, rsi_data = calculate_rsi(stock_df)
@@ -233,10 +236,12 @@ def determine_formula_output():
         
                 merged_dict = ma_data | rsi_data
 
-                historic_volatility, stop_loss_price, selling_price = calculate_historic_volatility(df=stock_df)
+                historic_volatility, stop_loss_price, selling_price,sell_trail_price = calculate_historic_volatility(df=stock_df)
                 print("condition 1: ", criteria_1, "condition 2: ", criteria_2)
                 print("Sell amount :", selling_price)
                 print("stop loss: ", stop_loss_price)
+
+
                 
                 env_config = EnvironmentConfig()
                 alpaca_key = env_config.alpaca_key
@@ -246,13 +251,21 @@ def determine_formula_output():
                 trade_value_cap = float(env_config.trade_value_cap) / 100
 
                 cash_available = getMoneyInPortfolio(value_percent=trade_value_percent, Api_key=alpaca_key, Api_secret=alpaca_secret)
-                check_order_criteria = check_orders(Api_key=alpaca_key, Api_secret=alpaca_secret, symbol=stocks)
+                check_order_criteria = check_orders_trailing_stop(Api_key=alpaca_key, Api_secret=alpaca_secret, symbol=stocks)
                 check_order_criteria_portoflio = check_portfolio_value_vs_equity_threshold(Api_key=alpaca_key, Api_secret=alpaca_secret, threshold_percentage=trade_value_cap)
-
+                print("condition any open orders fo the stock: ", check_order_criteria)
+                print("Condition check for liquidity: ",check_order_criteria_portoflio)
                 number_of_shares = int(cash_available // current_price)
-                if criteria_1 and criteria_2 and check_order_criteria and check_order_criteria_portoflio:
+                percent_current_price = current_price* 0.001
+                print("percent current price", percent_current_price)
+                check_percent_condition = False
+                if(sell_trail_price >= percent_current_price):
+                     check_percent_condition = True
+                print("check percent trail price condition:", check_percent_condition)
+                if criteria_1 == True and criteria_2 == True and check_order_criteria == True and check_order_criteria_portoflio == True and check_percent_condition:
                     final_data = {
                         "check_order_criteria": [check_order_criteria],
+                        "check_portfolio_liquidity": [check_order_criteria_portoflio],
                         "execute_trade": [True]
                     }
                     
@@ -261,8 +274,11 @@ def determine_formula_output():
                     print(" FINAL RESULT : Executed Trade")
                     symbol = stocks
                     qty = number_of_shares
-                    buy_stock(symbol=symbol, qty=qty, stop_price_value=stop_loss_price, sell_price=selling_price, Api_key=alpaca_key, Api_secret=alpaca_secret)
+                    # buy_stock(symbol=symbol, qty=qty, stop_price_value=stop_loss_price, sell_price=selling_price, Api_key=alpaca_key, Api_secret=alpaca_secret)
+                    buy_stock_single(symbol=symbol,qty=qty,Api_key=alpaca_key,Api_secret=alpaca_secret)
 
+                    time.sleep(10)
+                    stop_loss_trailing_price(symbol=symbol, qty=qty,trail_price=sell_trail_price, Api_key=alpaca_key, Api_secret=alpaca_secret)
                     basic_db_operations = BasicDbOperations(env_config)
                     db_conn = basic_db_operations.db_connection
                     buy_price = 100.00
@@ -272,17 +288,14 @@ def determine_formula_output():
                     print(" FINAL RESULT : Trade not executed")
                     final_data = {
                         "check_order_criteria": [check_order_criteria],
+                        "check_portfolio_liquidity": [check_order_criteria_portoflio],
                         "execute_trade": [False]
                     }
                     new_dict = merged_dict | final_data
                     write_to_csv(new_dict, stocks, current_price, exchange, historic_volatility)
 
-                break  # Exit the attempt loop if successful
+        except Exception as e:
 
-            except Exception as e:
-                print(f"Attempt {attempt + 1} failed: {e}")
-                if attempt + 1 == attempts:
-                    print("All attempts failed. Something went wrong.")
                     continue  # Move to the next stock in the list
     return True
 

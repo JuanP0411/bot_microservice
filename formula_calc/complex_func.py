@@ -135,14 +135,43 @@ def calculate_historic_volatility(df, window=30):
     recent_volatility = df['volatility'].iloc[-1]
     
     current_close_price = df["close"].iloc[-1]
-    stop_loss_num_stdev = 0.5
+    stop_loss_num_stdev = 0.3
     sell_num_stdev = 1.5
+    #0.3 * HV
+
+    atr = calculate_atr(df=df, window=14)
+
     stop_loss_price = current_close_price *(1 - (stop_loss_num_stdev * recent_volatility))
     sell_price = current_close_price *(1 + (sell_num_stdev * recent_volatility))
+    sell_price_trailing = 0.3 *recent_volatility*100
+    # sell_price_trailing = atr
     # Print the recent volatility
+    print("atr", atr)
+    print("number of stdev", stop_loss_num_stdev)
+    percent_value = (1 - (stop_loss_num_stdev * recent_volatility))
+    print("percent value",percent_value)
     print("Recent historic volatility:", recent_volatility)
     print("Stop loss price : " , stop_loss_price)
     print("Sell Price", sell_price)
+    print("Sell price trailing percent:", sell_price_trailing)
+    return recent_volatility,stop_loss_price,sell_price, sell_price_trailing
 
-    return recent_volatility,stop_loss_price,sell_price
+def calculate_atr(df, window=14):
 
+    # Calculate True Range (TR)
+    df['prev_close'] = df['close'].shift(1)
+    df['tr1'] = df['high'] - df['low']
+    df['tr2'] = (df['high'] - df['prev_close']).abs()
+    df['tr3'] = (df['low'] - df['prev_close']).abs()
+    df['true_range'] = df[['tr1', 'tr2', 'tr3']].max(axis=1)
+
+    # Calculate Average True Range (ATR)
+    # Calculate the ATR using EMA
+    alpha = 2 / (window + 1)
+    df['atr'] = df['true_range'].ewm(span=window, adjust=False).mean()
+
+    # Drop helper columns
+    df = df.drop(columns=['prev_close', 'tr1', 'tr2', 'tr3'])
+    
+
+    return df['atr'].iloc[-1]
